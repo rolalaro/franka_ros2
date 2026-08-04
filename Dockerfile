@@ -97,6 +97,18 @@ RUN sudo chown -R $USERNAME:$USERNAME /ros2_ws \
 COPY ./franka_entrypoint.sh /franka_entrypoint.sh
 RUN sudo chmod +x /franka_entrypoint.sh
 
+RUN sudo apt update \
+    && sudo apt install -y terminator
+    
+# Install VS code
+RUN sudo apt install -y wget gpg
+RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
+RUN sudo install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+RUN echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" |sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
+RUN rm -f packages.microsoft.gpg
+RUN sudo apt install -y apt-transport-https && sudo apt update && sudo apt install -y code
+RUN code --install-extension ms-vscode.cpptools && code --install-extension ms-python.python && code --install-extension  ms-vscode.cpptools-themes && code --install-extension  ms-vscode.cpptools-extension-pack && code --install-extension cschlosser.doxdocgen
+
 # Set the default shell to bash and the workdir to the source directory
 SHELL [ "/bin/bash", "-c" ]
 ENTRYPOINT [ "/franka_entrypoint.sh" ]
