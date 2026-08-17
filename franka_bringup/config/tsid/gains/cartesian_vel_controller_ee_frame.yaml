@@ -1,0 +1,44 @@
+${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_cartesian_vel_controller_ee_frame:
+  ros__parameters:
+    cartesian_vel_gain:
+        ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_link7:
+          kp_x: 1000.0
+          kp_y: 1000.0
+          kp_z: 1000.0
+          kp_roll: 2000.0
+          kp_pitch: 2000.0
+          kp_yaw: 2000.0
+          ki_x: 70.0
+          ki_y: 70.0
+          ki_z: 70.0
+          ki_roll: 50.0
+          ki_pitch: 50.0
+          ki_yaw: 50.0
+          kd_x: 0.5
+          kd_y: 0.5
+          kd_z: 0.5
+          kd_roll: 0.5
+          kd_pitch: 0.5
+          kd_yaw: 0.5
+    joint_pos_gain:
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint1:
+        kp: 25.0
+        kd: 110.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint2:
+        kp: 25.0
+        kd: 110.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint3:
+        kp: 25.0
+        kd: 110.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint4:
+        kp: 25.0
+        kd: 110.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint5:
+        kp: 25.0
+        kd: 110.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint6:
+        kp: 25.0
+        kd: 110.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint7:
+        kp: 25.0
+        kd: 110.0

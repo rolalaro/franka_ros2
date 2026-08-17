@@ -163,7 +163,7 @@ class TestFrankaArmEffortGating:
         """Real hardware includes effort command interface on all joints."""
         components = load_franka_arm('fr3', robot_ip='192.168.1.1')
         component = components[0]
-        arm_joints = [j for j in component.joints if 'fr3_joint' in j.name]
+        arm_joints = [j for j in component.joints if 'frjoint3' in j.name]
 
         for joint in arm_joints:
             cmd_names = {ci.name for ci in joint.command_interfaces}
@@ -178,7 +178,7 @@ class TestFrankaArmEffortGating:
             'fr3', gazebo='true', hand='true', gazebo_effort='false'
         )
         component = components[0]
-        arm_joints = [j for j in component.joints if 'fr3_joint' in j.name]
+        arm_joints = [j for j in component.joints if 'frjoint3' in j.name]
 
         for joint in arm_joints:
             cmd_names = {ci.name for ci in joint.command_interfaces}
@@ -193,7 +193,7 @@ class TestFrankaArmEffortGating:
             'fr3', gazebo='true', hand='true', gazebo_effort='true'
         )
         component = components[0]
-        arm_joints = [j for j in component.joints if 'fr3_joint' in j.name]
+        arm_joints = [j for j in component.joints if 'frjoint3' in j.name]
 
         for joint in arm_joints:
             cmd_names = {ci.name for ci in joint.command_interfaces}

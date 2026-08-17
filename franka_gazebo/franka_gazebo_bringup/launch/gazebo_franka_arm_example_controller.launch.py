@@ -129,7 +129,7 @@ def generate_launch_description():
         description='Namespace for the robot. If not set, the robot will be launched in the root namespace.')
     controller_launch_argument = DeclareLaunchArgument(
         controller_name,
-        default_value='gravity_compensation_example_controller',
+        default_value='joint_velocity_controller',
         description='The controller name to be used. You can choose one from the franka_example_controllers.')
     gz_args_launch_argument = DeclareLaunchArgument(
         gz_args_name,

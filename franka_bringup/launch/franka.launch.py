@@ -71,9 +71,12 @@
 ############################################################################
 
 
+from ament_index_python.packages import get_package_share_directory
+import os
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
     Shutdown,
@@ -82,13 +85,82 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 import xacro
+
+
+from controller_manager.launch_utils import generate_load_controller_launch_description
+from launch_pal.arg_utils import read_launch_argument
+from launch_pal.param_utils import parse_parametric_yaml, merge_param_files
 
 # Generates the "default" nodes (controller_manager, robot_state_publisher, etc.)
 # for the Franka robot. This function is called by the main launch file.
 # It uses the xacro library to process the URDF file and generate the robot description.
 
+def setup_tsid_controller(context, controller_name, arm_prefix, load_gains_separately=False):
+    robot_type = read_launch_argument("robot_type", context)
+
+    param_file = os.path.join(
+        get_package_share_directory("franka_bringup"),
+        "config",
+        "tsid",
+        f"{controller_name}.yaml",
+    )
+
+    arm_prefix_with_underscore = arm_prefix
+    if len(arm_prefix_with_underscore) > 0:
+        arm_prefix_with_underscore = arm_prefix_with_underscore+ "_"
+    remappings = {"ROBOT_TYPE_PREFIX": robot_type,
+                  "ARM_PREFIX": arm_prefix_with_underscore}
+
+    full_controller_name = f"{arm_prefix_with_underscore}{robot_type}_{controller_name}"
+
+    parsed_yaml = parse_parametric_yaml(
+        source_files=[param_file], param_rewrites=remappings
+    )
+
+    if load_gains_separately:
+
+        gains_file = os.path.join(
+            get_package_share_directory("franka_bringup"),
+            "config",
+            "tsid",
+            "gains",
+            f"{controller_name}.yaml",
+        )
+
+        parsed_gains = parse_parametric_yaml(
+            source_files=[gains_file], param_rewrites=remappings
+        )
+
+        parsed_yaml = merge_param_files([parsed_yaml, parsed_gains])
+
+    launch_controller = GroupAction(
+        [
+            generate_load_controller_launch_description(
+                controller_name=full_controller_name,
+                controller_params_file=parsed_yaml,
+                extra_spawner_args=["--inactive", "--controller-manager-timeout"," 120"],
+            )
+        ],
+        forwarding=False,
+    )
+
+    return launch_controller
+
+    return
+
+def setup_tsid_controllers(context, arm_prefix, *args, **kwargs):
+    joint_space_controller_vel = setup_tsid_controller(
+        context, "joint_space_controller_vel", arm_prefix, load_gains_separately=True
+    )
+    # joint_space_controller = setup_tsid_controller(
+    #     context, "joint_space_controller", arm_prefix, load_gains_separately=True
+    # )
+
+    return [
+        joint_space_controller_vel,
+        # joint_space_controller,
+    ]
 
 def generate_robot_nodes(context):
     load_gripper_launch_configuration = LaunchConfiguration('load_gripper').perform(context)
@@ -97,7 +169,7 @@ def generate_robot_nodes(context):
     arm_prefix = LaunchConfiguration('arm_prefix').perform(context)
     urdf_path = PathJoinSubstitution(
         [
-            FindPackageShare('franka_bringup'),
+            get_package_share_directory('franka_bringup'),
             'urdf',
             'franka_arm.urdf.xacro',
         ]
@@ -143,6 +215,15 @@ def generate_robot_nodes(context):
                 {'arm_prefix': arm_prefix},
             ],
             output='screen',
+            # prefix=[
+            #     "valgrind",
+            #     " --tool=memcheck",
+            #     " --leak-check=no",
+            #     " --track-origins=yes",
+            #     " --num-callers=30",
+            #     " --error-limit=no",
+            #     " --log-file=/tmp/valgrind.%p.log",
+            # ],
             on_exit=Shutdown(),
         ),
         Node(
@@ -164,6 +245,8 @@ def generate_robot_nodes(context):
             namespace=namespace,
             arguments=[
                 'joint_state_broadcaster',
+                # '--controller-manager-timeout'
+                #  ' 120',
                 '--controller-ros-args',
                 f'--remap joint_states:={joint_state_publisher_sources[0]}',
             ],
@@ -193,7 +276,7 @@ def generate_robot_nodes(context):
                 [
                     PathJoinSubstitution(
                         [
-                            FindPackageShare('franka_gripper'),
+                            get_package_share_directory('franka_gripper'),
                             'launch',
                             'gripper.launch.py',
                         ]
@@ -209,6 +292,34 @@ def generate_robot_nodes(context):
         ),
     ]
 
+    nodes += setup_tsid_controllers(context, arm_prefix=arm_prefix)
+
+    ## BEGIN DEBUG
+    # example_controllers_path = PathJoinSubstitution(
+    #         [
+    #             get_package_share_directory('franka_bringup'),
+    #             'config',
+    #             'controllers.yaml',
+    #         ]
+    #     ).perform(context)
+
+    # example_ctrllers_parsed_yaml = parse_parametric_yaml(
+    #         source_files=[example_controllers_path], param_rewrites={}
+    #     )
+    
+    # launch_controller = GroupAction(
+    #         [
+    #             generate_load_controller_launch_description(
+    #                 controller_name="gravity_compensation_example_controller",
+    #                 controller_params_file=example_ctrllers_parsed_yaml,
+    #                 extra_spawner_args=["--inactive", "--controller-manager-timeout"," 120"],
+    #             )
+    #         ],
+    #         forwarding=False,
+    #     )
+
+    # nodes += [launch_controller]
+    ## END DEBUG
     return nodes
 
 
@@ -257,7 +368,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'controllers_yaml',
             default_value=PathJoinSubstitution(
-                [FindPackageShare('franka_bringup'), 'config', 'controllers.yaml']
+                [get_package_share_directory('franka_bringup'), 'config', 'controllers.yaml']
             ),
             description='Override the default controllers.yaml file.',
         ),

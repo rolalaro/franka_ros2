@@ -1,0 +1,33 @@
+${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint_space_controller_vel:
+  ros__parameters:
+    joint_vel_gain:
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint1:
+        kp: 700.0
+        kd: 0.5
+        ki: 50.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint2:
+        kp: 700.0
+        kd: 0.5
+        ki: 50.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint3:
+        kp: 700.0
+        kd: 0.5
+        ki: 50.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint4:
+        kp: 700.0
+        kd: 0.5
+        ki: 50.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint5:
+        kp: 700.0
+        kd: 0.5
+        ki: 50.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint6:
+        kp: 700.0
+        kd: 0.5
+        ki: 50.0
+      ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint7:
+        kp: 700.0
+        kd: 0.5
+        ki: 50.0
+  
+    velocity_scaling: 1.0

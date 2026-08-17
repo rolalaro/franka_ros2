@@ -1,0 +1,51 @@
+joint_controllers:
+  root_joint_type: {
+    type: string,
+    description: "Type of the robot root joint.",
+    read_only: true,
+    validation: {
+      one_of<>: [["JointModelFreeFlyer", "JointModelFixed"]],
+    },
+    default_value: "JointModelFixed"
+  }
+
+  joint_state_names: {
+    type: string_array,
+    default_value: [],
+    description: "Specifies joints names.",
+    read_only: true,
+    validation: {
+      unique<>: null,
+    }
+  }
+
+  joint_command_names: {
+    type: string_array,
+    default_value: [],
+    description: "Specifies joints names for command.",
+    read_only: true,
+    validation: {
+      unique<>: null,
+    }
+  }
+
+  interface_name: {
+    type: string,
+    default_value: "effort",
+    description: "Name of the interface to command",
+  }
+
+  use_sim_time: {
+    type: bool,
+    default_value: false,
+    description: "If true, the controller will use simulated time",
+  }
+
+  velocity_scaling: {
+    type: double,
+    default_value: 0.5,
+    description: "Scaling factor for the velocity command",
+  }
+
+
+
