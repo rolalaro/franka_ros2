@@ -67,11 +67,8 @@ public:
   controller_interface::CallbackReturn
   on_deactivate(const rclcpp_lifecycle::State & previous_state) override;
 
-  void DefaultPositionTasks();
   virtual void updateParams();
   std::pair<Eigen::VectorXd, Eigen::VectorXd> getActualState() const;
-
-  void compute_problem_and_set_command(Eigen::VectorXd q, Eigen::VectorXd v);
 
 protected:
   template<typename T>
@@ -93,8 +90,6 @@ protected:
   Eigen::VectorXd position_end_;
   bool first_tsid_iter_;
   std::unordered_map<std::string, BoundingBox> bounding_boxes_;
-
-private:
 
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_vel;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_pos;

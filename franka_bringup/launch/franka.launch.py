@@ -153,13 +153,13 @@ def setup_tsid_controllers(context, arm_prefix, *args, **kwargs):
     joint_space_controller_vel = setup_tsid_controller(
         context, "joint_space_controller_vel", arm_prefix, load_gains_separately=True
     )
-    # joint_space_controller = setup_tsid_controller(
-    #     context, "joint_space_controller", arm_prefix, load_gains_separately=True
-    # )
+    joint_space_controller = setup_tsid_controller(
+        context, "joint_space_controller", arm_prefix, load_gains_separately=True
+    )
 
     return [
         joint_space_controller_vel,
-        # joint_space_controller,
+        joint_space_controller,
     ]
 
 def generate_robot_nodes(context):

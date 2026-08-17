@@ -159,10 +159,6 @@ controller_interface::CallbackReturn TsidPositionControl::on_configure(
   dt_ = rclcpp::Duration(std::chrono::duration<double, std::milli>(1e3 / this->get_update_rate()));
   RCLCPP_INFO(get_node()->get_logger(), "Control period: %f", dt_.seconds());
 
-  first_tsid_iter_ = true;
-
-  DefaultPositionTasks();
-
   publisher_curr_vel =
     get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("tsid_cmd_vel", 10);
 
@@ -227,8 +223,6 @@ controller_interface::CallbackReturn TsidPositionControl::on_activate(
       joint.c_str(), joint_state_interfaces_[jnt_id_[joint]][0].get().get_optional().value());
   }
 
-  first_tsid_iter_ = true;
-
   // Taking initial position from the joint state interfaces
   Eigen::VectorXd q0 = Eigen::VectorXd::Zero(model_.nq);
   Eigen::VectorXd v0 = Eigen::VectorXd::Zero(model_.nv);
@@ -291,179 +285,6 @@ void TsidPositionControl::updateParams()
 
   }
     // task_joint_bounds_->setVelocityBounds(v_max);
-}
-
-void TsidPositionControl::DefaultPositionTasks()
-{
-  Eigen::VectorXd q0 = Eigen::VectorXd::Zero(model_.nv);
-
-  // traj_joint_posture_ = new tsid::trajectories::TrajectoryEuclidianConstant(
-  //   "traj_joint", q0.tail(robot_wrapper_->nv() - 6));
-
-  //   RCLCPP_ERROR(get_node()->get_logger(), "DUMMY TrajectorySample");
-  // tsid::trajectories::TrajectorySample sample_posture = traj_joint_posture_->computeNext();
-  // task_joint_posture_->setReference(sample_posture);
-  // formulation_->addMotionTask(
-  //   *task_joint_posture_, posture_weight, posture_priority,
-  //   transition_time);
-
-  // Joint Bounds Task
-  // task_joint_bounds_ = new tsid::tasks::TaskJointPosVelAccBounds(
-  //   "task-joint-bounds",
-  //   *robot_wrapper_, dt_.seconds(), false);
-  // task_joint_bounds_->setTimeStep(dt_.seconds());
-
-  Eigen::VectorXd q_min = model_.lowerPositionLimit.tail(model_.nv - 6);
-  Eigen::VectorXd q_max = model_.upperPositionLimit.tail(model_.nv - 6);
-
-  // task_joint_bounds_->setPositionBounds(q_min, q_max);
-
-  // Joint velocity bounds
-  v_scaling_ = params_.velocity_scaling;
-  Eigen::VectorXd v_max = v_scaling_ * model_.velocityLimit.tail(model_.nv - 6);
-  Eigen::VectorXd v_min = -v_max;
-  //Eigen::VectorXd a_max = params_.acc_lim * Eigen::VectorXd::Ones(model_.nv - 6);
-
-  // Check if some of the state joints are not in the command joints
-  for (const auto & joint : joint_names_) {
-    if (std::find(
-        joint_command_names_.begin(), joint_command_names_.end(),
-        joint) == joint_command_names_.end())
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "DUMMY model_.getJointId(joint) = %d", model_.getJointId(joint));
-      v_max[model_.getJointId(joint) - 2] = 0;
-      v_min[model_.getJointId(joint) - 2] = 0;
-    }
-  }
-  // task_joint_bounds_->setVelocityBounds(v_max);
-
-
-  //task_joint_bounds_->setAccelerationBounds(a_max);
-  // formulation_->addMotionTask(*task_joint_bounds_, bounds_weight, bounds_priority, transition_time);
-}
-
-void TsidPositionControl::compute_problem_and_set_command(
-  const Eigen::VectorXd q,
-  const Eigen::VectorXd v)
-{
-  // Eigen::VectorXd q_ = Eigen::VectorXd::Zero(model_.nq);
-  // q_[6] = 1;
-
-  // Eigen::VectorXd v_ = Eigen::VectorXd::Zero(model_.nv);
-  // v_.tail(model_.nq - 7) = (q.tail(model_.nq - 7) - q_prev_) / dt_.seconds();
-
-  // if (first_tsid_iter_) {
-  //   q_int_ = q;
-  //   v_int_ = v;
-  //   first_tsid_iter_ = false;
-  // }
-
-  // v_int_.head(6) = Eigen::VectorXd::Zero(6);
-  // q_.tail(model_.nq - 7) = q_int_.tail(model_.nq - 7);
-  // // Computing the problem data
-  // const tsid::solvers::HQPData solverData = formulation_->computeProblemData(0.0, q_, v_int_);
-  // Eigen::VectorXd q_cmd;
-  // Eigen::VectorXd v_cmd, a;
-  // Eigen::VectorXd q_int;
-  // Eigen::VectorXd tau_cmd = Eigen::VectorXd::Zero(model_.nv - 6);
-  // q_cmd = q.tail(model_.nq - 7);
-
-  // if (params_.interface_name == "position") {
-  //   // Solving the problem
-  //   const auto sol = solver_->solve(solverData);
-  //   // Integrating acceleration to get velocity
-  //   a = formulation_->getAccelerations(sol);
-  //   v_cmd = v_int_ + a * 0.5 * dt_.seconds();
-
-
-  //   // Integrating velocity to get position
-  //   q_int_ = pinocchio::integrate(
-  //     model_, q_int_, v_cmd * dt_.seconds());
-
-  //   v_int_ = v_cmd;
-
-  //   q_cmd = q_int_.tail(model_.nq - 7);
-
-  //   // Setting the command to the joint command interfaces
-  //   for (const auto & joint : joint_command_names_) {
-  //     if (!command_interfaces_[jnt_command_id_[joint]].set_value(
-  //         q_cmd[model_.getJointId(joint) - 2]))
-  //     {
-  //       RCLCPP_ERROR(
-  //         get_node()->get_logger(), "Failed to set command for joint %s",
-  //         joint.c_str());
-  //     }
-  //   }
-  // } else if (params_.interface_name == "velocity") {
-  //   // Solving the problem
-  //   const auto sol = solver_->solve(solverData);
-  //   // Integrating acceleration to get velocity
-
-  //   a = formulation_->getAccelerations(sol);
-  //   v_cmd = (v_ + a * 0.5 * dt_.seconds()).tail(model_.nv - 6);
-
-  //   // Setting the command to the joint command interfaces
-  //   for (const auto & joint : joint_command_names_) {
-  //     if (!command_interfaces_[jnt_command_id_[joint]].set_value(
-  //         v_cmd[model_.getJointId(joint) - 2]))
-  //     {
-  //       RCLCPP_ERROR(
-  //         get_node()->get_logger(), "Failed to set command for joint %s",
-  //         joint.c_str());
-  //     }
-  //   }
-  // } else if (params_.interface_name == "effort") {
-  //   // Solving the problem
-  //   const auto sol = solver_->solve(solverData);
-
-  //   a = formulation_->getAccelerations(sol);
-  //   v_cmd = v + a * 0.5 * dt_.seconds();
-
-  //   tau_cmd = formulation_->getActuatorForces(sol);
-
-  //   // Transform tau_cmd in effort command
-  //   for (const auto & joint : joint_command_names_) {
-  //     const auto joint_params = params_.parameters_sin.joint_command_names_map.at(joint);
-
-  //     for (Eigen::Index i = 0; i < tau_cmd.size(); ++i) {
-  //       tau_cmd[i] /= (joint_params.motor_torque_constant * joint_params.reduction_ratio);
-  //     }
-  //     if (!command_interfaces_[jnt_command_id_[joint]].set_value(
-  //         tau_cmd[model_.getJointId(joint) -
-  //         2]))
-  //     {
-  //       RCLCPP_ERROR(
-  //         get_node()->get_logger(), "Failed to set command for joint %s",
-  //         joint.c_str());
-  //     }
-  //   }
-  // }
-  // q_prev_ = q.tail(model_.nq - 7);
-
-  // std_msgs::msg::Float64MultiArray pub;
-
-  // for (Eigen::Index i = 0; i < v_cmd.size(); i++) {
-  //   pub.data.push_back(v_cmd[i]);
-  // }
-
-  // publisher_curr_vel->publish(pub);
-  // std_msgs::msg::Float64MultiArray pub_pos;
-
-  // q_cmd = task_joint_posture_->getReference().getValue();
-  // for (Eigen::Index i = 0; i < q_cmd.size(); i++) {
-  //   pub_pos.data.push_back(q_cmd[i]);
-  // }
-
-  // publisher_curr_pos->publish(pub_pos);
-
-  // std_msgs::msg::Float64MultiArray pub_curr;
-
-  // for (Eigen::Index i = 0; i < tau_cmd.size(); i++) {
-  //   pub_curr.data.push_back(tau_cmd[i]);
-  // }
-
-  // publisher_curr_current->publish(pub_curr);
-  // q_prev_ = q.tail(model_.nq - 7);
 }
 
 }  // namespace dynamic_tsid_controller

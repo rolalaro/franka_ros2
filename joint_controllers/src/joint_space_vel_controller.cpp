@@ -233,8 +233,8 @@ Eigen::VectorXd JointSpaceVelocityController::create_velocity_ramp(
   assert(vel_current.size() == accel_max.size());
   assert(vel_current.size() == jerk_max.size());
 
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG vel_current (#" << vel_current.size() << ") = " << vel_current.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG vel_cmd (#" << vel_cmd.size() << ") = " << vel_cmd.transpose());
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG vel_current (#" << vel_current.size() << ") = " << vel_current.transpose());
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG vel_cmd (#" << vel_cmd.size() << ") = " << vel_cmd.transpose());
   // RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG accel_current (#" << accel_current.size() << ") = " << accel_current.transpose());
   // RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG accel_max (#" << accel_max.size() << ") = " << accel_max.transpose());
   // RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG jerk_max (#" << jerk_max.size() << ") = " << jerk_max.transpose());
@@ -246,13 +246,13 @@ Eigen::VectorXd JointSpaceVelocityController::create_velocity_ramp(
 
   // 2. Clamp desired acceleration to the acceleration limit
   accel_desired = accel_desired.cwiseMax(-0.95*accel_max).cwiseMin(0.95*accel_max);
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG accel_desired (#" << accel_desired.size() << ") = " << accel_desired.transpose());
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG accel_desired (#" << accel_desired.size() << ") = " << accel_desired.transpose());
 
   // 3. Clamp the CHANGE in acceleration (jerk) relative to current acceleration
   const Eigen::VectorXd max_daccel = 0.95 * jerk_max * dt;
   Eigen::VectorXd daccel = accel_desired - accel_current;
   daccel = daccel.cwiseMax(-max_daccel).cwiseMin(max_daccel);
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG daccel (#" << daccel.size() << ") = " << daccel.transpose());
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG daccel (#" << daccel.size() << ") = " << daccel.transpose());
 
   // 4. Update acceleration state
   accel_current = accel_current + daccel;
@@ -261,7 +261,7 @@ Eigen::VectorXd JointSpaceVelocityController::create_velocity_ramp(
 
   // 5. Integrate acceleration to get the new (jerk-limited) velocity
   Eigen::VectorXd vel_new = vel_current + accel_current * dt;
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG vel_new (#" << vel_new.size() << ") = " << vel_new.transpose());
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(),"DEBUG vel_new (#" << vel_new.size() << ") = " << vel_new.transpose());
 
   return vel_new;
 }

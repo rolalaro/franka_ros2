@@ -59,6 +59,9 @@ private:
   Eigen::VectorXd vel_curr_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr publisher_current_cmd;
 
+  Eigen::VectorXd accel_max_;
+  Eigen::VectorXd jerk_max_;
+
 };
 } // namespace joint_controllers
 
