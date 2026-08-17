@@ -44,7 +44,7 @@ public:
 
   void setPositionCb(std_msgs::msg::Float64MultiArray::ConstSharedPtr msg);
 
-  void interpolate(double t);
+  void interpolate(double t, const Eigen::VectorXd &q_meas);
 
 private:
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr
@@ -54,9 +54,12 @@ private:
   double t_curr_ = 0.0;
   double v_max = 2.5;
 
-  Eigen::VectorXd position_start_;
-  Eigen::VectorXd position_curr_;
-  Eigen::VectorXd vel_curr_;
+  Eigen::VectorXd q_start_;
+  Eigen::VectorXd q_end_;
+  Eigen::VectorXd q_openloop_;
+  Eigen::VectorXd q_filtered_;
+  Eigen::VectorXd q_cmd_;
+  Eigen::VectorXd integral_error_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr publisher_current_cmd;
 
   Eigen::VectorXd accel_max_;

@@ -44,7 +44,34 @@ joint_controllers:
   velocity_scaling: {
     type: double,
     default_value: 0.5,
-    description: "Scaling factor for the velocity command",
+    description: "Scaling factor for the velocity command for the position controller",
+  }
+
+  Kp: {
+    type: double,
+    default_value: 5.0,
+    description: "Proportional gain for the position controller",
+  }
+
+  Ki: {
+    type: double,
+    default_value: 0.5,
+    description: "Integral gain for the position controller",
+  }
+
+  lpf_alpha: {
+    type: double,
+    default_value: 0.2,
+    description: "Constant for the exponantial low pass filter for the position controller. 0<alpha<=1, smaller = more filtering / more lag",
+    validation:{
+        bounds<>: [0.0, 1.0]
+    }
+  }
+
+  integral_clamp: {
+    type: double,
+    default_value: 0.05,
+    description: "Radians, anti-windup limit",
   }
 
 

@@ -32,10 +32,13 @@ JointSpacePositionController::JointSpacePositionController()
 controller_interface::CallbackReturn JointSpacePositionController::on_configure(
   const rclcpp_lifecycle::State & prev_state)
 {
-  position_start_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  position_end_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  position_curr_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  vel_curr_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
+  q_start_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
+  q_end_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
+  q_cmd_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
+  q_openloop_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
+  q_filtered_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
+  q_cmd_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
+  integral_error_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
 
   std::string controller_name = get_node()->get_name();
   // Position command
@@ -49,6 +52,7 @@ controller_interface::CallbackReturn JointSpacePositionController::on_configure(
     get_node()->create_publisher<sensor_msgs::msg::JointState>(
     controller_name + "/joint_position_cmd_curr", 1);
 
+  vel_max_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
   accel_max_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
   jerk_max_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
   for(int i = 0;i < accel_max_.size(); ++i) {
@@ -69,11 +73,11 @@ controller_interface::CallbackReturn JointSpacePositionController::on_activate(
 
   std::pair<Eigen::VectorXd, Eigen::VectorXd> state = getActualState();
 
-  position_start_ = state.first.tail(params_.joint_command_names.size());
+  q_start_ = state.first.tail(params_.joint_command_names.size());
 
-  position_end_ = position_start_;
+  q_end_ = q_start_;
 
-  first_tsid_iter_ = true;
+  first_iter_ = true;
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -90,49 +94,27 @@ controller_interface::return_type JointSpacePositionController::update(
   state.first[6] = 1.0;
   Eigen::VectorXd &q = state.first, &v = state.second;
 
-  interpolate(t_curr_); // compute the velocity and the position
+  interpolate(t_curr_, q); // compute the velocity and the position
 
   /// BEGIN compute_problem_and_set_command(state.first, state.second); //q and v
-  if (first_tsid_iter_) {
-    q_int_ = q;
-    v_int_ = v;
-    first_tsid_iter_ = false;
-  }
-
-  v_int_.head(6) = Eigen::VectorXd::Zero(6);
-  v_int_.tail(model_.nv - 6) = vel_curr_;
-  // Computing the problem data
-  Eigen::VectorXd q_cmd;
-
-  // Integrating velocity to get position
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"q_int_(" << t_curr_ << ") = " << q_int_.transpose());
-  q_int_ = pinocchio::integrate(
-    model_, q_int_, v_int_ * dt_.seconds());
-
-  q_cmd = q_int_.tail(model_.nq - 7);
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"v_int_(" << t_curr_ << ") = " << v_int_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"q_cmd(" << t_curr_ << ") = " << q_cmd.transpose());
-
+  
   // Setting the command to the joint command interfaces
   for (const auto & joint : joint_command_names_) {
     if (!command_interfaces_[jnt_command_id_[joint]].set_value(
-        q_cmd[model_.getJointId(joint) - 2]))
+        q_cmd_[model_.getJointId(joint) - 2]))
     {
       RCLCPP_ERROR(
         get_node()->get_logger(), "Failed to set command for joint %s",
         joint.c_str());
     }
   }
-  q_prev_ = q.tail(model_.nq - 7);
 
   std_msgs::msg::Float64MultiArray pub_pos;
-  for (Eigen::Index i = 0; i < q_cmd.size(); i++) {
-    pub_pos.data.push_back(q_cmd[i]);
+  for (Eigen::Index i = 0; i < q_cmd_.size(); i++) {
+    pub_pos.data.push_back(q_cmd_[i]);
   }
 
   publisher_curr_pos->publish(pub_pos);
-
-  q_prev_ = q.tail(model_.nq - 7);
   /// END compute_problem_and_set_command(state.first, state.second); //q and v
 
   //Publishing the current command
@@ -145,7 +127,7 @@ controller_interface::return_type JointSpacePositionController::update(
   message.effort.resize(joint_command_names_.size());
 
   for (size_t i = 0; i < joint_command_names_.size(); i++) {
-    message.position[i] = position_end_[i];
+    message.position[i] = q_end_[i];
     message.velocity[i] = 0.0;
     message.effort[i] = 0.0;
   }
@@ -191,78 +173,110 @@ void JointSpacePositionController::setPositionCb(
     ref[i] = msg->data[i];
   }
 
-  position_start_ = getActualState().first.tail(params_.joint_command_names.size());
-  position_end_ = ref;
+  q_start_ = getActualState().first.tail(params_.joint_command_names.size());
+  q_end_ = ref;
 
   t_curr_ = 0;
-  first_tsid_iter_ = true;
+  integral_error_ = Eigen::VectorXd::Zero(q_cmd_.size());
+  first_iter_ = true;
 
 }
 
-void JointSpacePositionController::interpolate(double t_curr)
+void JointSpacePositionController::interpolate(double t_curr, const Eigen::VectorXd &q_meas)
 {
-  if (position_end_ == position_start_) {
-    position_curr_ = position_end_;
-    vel_curr_ = Eigen::Zero(params_.joint_command_names.size());
+  if (q_end_ == q_start_) {
+    q_cmd_ = q_end_;
+    q_openloop_ = q_end_;
     return;
   }
 
 
   int maxDiffIndex = 0;
-  double maxDiff = std::abs(position_end_[0] - position_start_[0]);
+  double maxDiff = std::abs(q_end_[0] - q_start_[0]);
 
-  for (Eigen::Index i = 1; i < position_start_.size(); ++i) {
-    double currentDiff = std::abs(position_end_[i] - position_start_[i]);
+  for (Eigen::Index i = 1; i < q_start_.size(); ++i) {
+    double currentDiff = std::abs(q_end_[i] - q_start_[i]);
     if (currentDiff > maxDiff) {
       maxDiff = currentDiff;
       maxDiffIndex = i;
     }
   }
+  double a_max = accel_max_[maxDiffIndex];
+  double v_max_ = vel_max_[maxDiffIndex];
+  t_acc_ = v_max_ / a_max;
+  t_flat_ =
+    (std::abs(q_end_[maxDiffIndex] - q_start_[maxDiffIndex]) - v_max_ * t_acc_) /
+    v_max_;
+
+  double dt = dt_.seconds();
+  if (first_iter_) {
+    dt = 0.;
+    q_filtered_ = q_meas;
+    first_iter_ = false;
+  }
 
   double s = 0;
-  double s_dot = 0;
+  // double s_dot = 0;
 
   // Computation of a trapezoidal trajectory
   for (auto joint : params_.joint_command_names) {
     int joint_id = jnt_id_[joint];
-    double a_max = accel_max_[joint_id];
-    double v_max_ = params_.velocity_scaling * v_max;
-    t_acc_ = v_max_ / a_max;
-    t_flat_ =
-      (std::abs(position_end_[maxDiffIndex] - position_start_[maxDiffIndex]) - v_max_ * t_acc_) /
-      v_max_;
+    double accel = accel_max_[joint_id];
+    double vel = vel_max_[joint_id];
     if (t_curr < t_acc_) {
-      s = 0.5 * a_max * t_curr * t_curr;
-      s_dot = a_max * t_curr;
+      s = 0.5 * accel * t_curr * t_curr;
+      // s_dot = accel * t_curr;
     } else if (t_curr >= t_acc_ && t_curr < t_acc_ + t_flat_) {
-      s = v_max_ *
-        (std::abs(position_end_[joint_id] - position_start_[joint_id])) /
-        (std::abs(position_end_[maxDiffIndex] - position_start_[maxDiffIndex])) *
+      s = vel *
+        (std::abs(q_end_[joint_id] - q_start_[joint_id])) /
+        (std::abs(q_end_[maxDiffIndex] - q_start_[maxDiffIndex])) *
         (t_curr - t_acc_ / 2 );
-      s_dot = v_max_ * (std::abs(position_end_[joint_id] - position_start_[joint_id])) /
-        (std::abs(position_end_[maxDiffIndex] - position_start_[maxDiffIndex]));
+      // s_dot = vel * (std::abs(q_end_[joint_id] - q_start_[joint_id])) /
+      //   (std::abs(q_end_[maxDiffIndex] - q_start_[maxDiffIndex]));
     } else if (t_curr >= t_acc_ + t_flat_ && t_curr < t_flat_ + 2 * t_acc_) {
-      s = std::abs(position_end_[joint_id] - position_start_[joint_id]) -
-        0.5 * a_max *
+      s = std::abs(q_end_[joint_id] - q_start_[joint_id]) -
+        0.5 * accel *
         (t_flat_ + 2 * t_acc_ - t_curr) *
         (t_flat_ + 2 * t_acc_ - t_curr);
-      s_dot = v_max_ * (std::abs(position_end_[joint_id] - position_start_[joint_id])) /
-        (std::abs(position_end_[maxDiffIndex] - position_start_[maxDiffIndex])) - a_max *
-        (t_curr - t_flat_ - t_acc_);
+      // s_dot = vel * (std::abs(q_end_[joint_id] - q_start_[joint_id])) /
+      //   (std::abs(q_end_[maxDiffIndex] - q_start_[maxDiffIndex])) - accel *
+      //   (t_curr - t_flat_ - t_acc_);
     } else {
-      s = std::abs(position_end_[joint_id] - position_start_[joint_id]);
-      s_dot = 0;
+      s = std::abs(q_end_[joint_id] - q_start_[joint_id]);
+      // s_dot = 0;
     }
-    position_curr_[joint_id] = position_start_[joint_id] +
-      copysign(1, position_end_[joint_id] - position_start_[joint_id]) * s;
-    vel_curr_[joint_id] =
-      copysign(1, position_end_[joint_id] - position_start_[joint_id]) * s_dot;
+    
+    double sign = copysign(1.0, q_end_[joint_id] - q_start_[joint_id]);
+    q_openloop_[joint_id] = q_start_[joint_id] + sign * s;
+    
+    // ---- feedback trim ----
+    // 1) low-pass the noisy measurement (cheap alternative to a Kalman filter;
+    //    we don't need a velocity estimate, so a state observer is overkill)
+    q_filtered_[joint_id] =
+      lpf_alpha_ * q_meas[joint_id] + (1.0 - lpf_alpha_) * q_filtered_[joint_id];
+
+    // 2) tracking error against the feedforward reference
+    double error = q_openloop_[joint_id] - q_filtered_[joint_id];
+
+    // 3) integral with anti-windup clamp
+    if (dt > 0.0) {
+      integral_error_[joint_id] =
+        std::clamp(integral_error_[joint_id] + error * dt, -integral_clamp_, integral_clamp_);
+    }
+
+    double correction = kp_ * error + ki_ * integral_error_[joint_id];
+
+    // 4) apply correction to the commanded position, then hard-clamp to
+    //    [start, end] so overshoot past the target is structurally impossible
+    double lo = std::min(q_start_[joint_id], q_end_[joint_id]);
+    double hi = std::max(q_start_[joint_id], q_end_[joint_id]);
+    q_cmd_[joint_id] =
+      std::clamp(q_openloop_[joint_id] + correction, lo, hi);
   }
 
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"position_start_(" <<  t_curr << ") = " << position_start_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"position_end_(" <<  t_curr << ") = " << position_end_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"position_curr_(" <<  t_curr << ") = " << position_curr_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"vel_curr_(" <<  t_curr << ") = " << vel_curr_.transpose());
+  RCLCPP_INFO_STREAM(get_node()->get_logger(),"q_start_(" <<  t_curr << ") = " << q_start_.transpose());
+  RCLCPP_INFO_STREAM(get_node()->get_logger(),"q_end_(" <<  t_curr << ") = " << q_end_.transpose());
+  RCLCPP_INFO_STREAM(get_node()->get_logger(),"q_cmd_(" <<  t_curr << ") = " << q_cmd_.transpose());
 }
 
 } // namespace joint_controllers

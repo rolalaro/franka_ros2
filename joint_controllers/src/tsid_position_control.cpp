@@ -97,8 +97,6 @@ controller_interface::CallbackReturn TsidPositionControl::on_configure(
   joint_state_interfaces_.resize(joint_names_.size());
   state_interface_names_.resize(joint_names_.size());
 
-  q_prev_ = Eigen::VectorXd::Zero(joint_names_.size());
-
   // Creating a map between index and joint
   int idx = 0;
 
@@ -159,14 +157,16 @@ controller_interface::CallbackReturn TsidPositionControl::on_configure(
   dt_ = rclcpp::Duration(std::chrono::duration<double, std::milli>(1e3 / this->get_update_rate()));
   RCLCPP_INFO(get_node()->get_logger(), "Control period: %f", dt_.seconds());
 
-  publisher_curr_vel =
-    get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("tsid_cmd_vel", 10);
-
   publisher_curr_pos =
-    get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("tsid_cmd_pos", 10);
+    get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("joint_cmd_pos", 10);
 
-  publisher_curr_current =
-    get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("tsid_cmd_curr", 10);
+  v_scaling_ = params_.velocity_scaling;
+  kp_ = params_.Kp;
+  ki_ = params_.Ki;
+  lpf_alpha_ = params_.lpf_alpha;
+  integral_clamp_ = params_.integral_clamp;
+  vel_max_ =
+    v_scaling_ * model_.upperVelocityLimit.tail(model_.nv - 6);
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -230,7 +230,7 @@ controller_interface::CallbackReturn TsidPositionControl::on_activate(
   std::pair<Eigen::VectorXd, Eigen::VectorXd> state = getActualState();
 
   q0 = state.first;
-  q_prev_ = q0.tail(model_.nq - 7);
+  // q_prev_ = q0.tail(model_.nq - 7);
 
   // formulation_->computeProblemData(0.0, q0, v0);
 
@@ -270,21 +270,24 @@ void TsidPositionControl::updateParams()
 
 
     v_scaling_ = params_.velocity_scaling;
-    Eigen::VectorXd v_max =
+    vel_max_ =
       v_scaling_ * model_.velocityLimit.tail(model_.nv - 6);
 
+    kp_ = params_.Kp;
+    ki_ = params_.Ki;
+    lpf_alpha_ = params_.lpf_alpha;
+    integral_clamp_ = params_.integral_clamp;
 
     for (const auto & joint : joint_names_) {
       if (std::find(
           joint_command_names_.begin(), joint_command_names_.end(),
           joint) == joint_command_names_.end())
       {
-        v_max[model_.getJointId(joint) - 2] = 0;
+        vel_max_[model_.getJointId(joint) - 2] = 0;
       }
     }
 
   }
-    // task_joint_bounds_->setVelocityBounds(v_max);
 }
 
 }  // namespace dynamic_tsid_controller

@@ -87,19 +87,19 @@ protected:
   std::map<std::string, int> jnt_id_;
   std::map<std::string, int> jnt_command_id_;
   rclcpp::Duration dt_;
-  Eigen::VectorXd position_end_;
-  bool first_tsid_iter_;
+  bool first_iter_;
   std::unordered_map<std::string, BoundingBox> bounding_boxes_;
 
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_vel;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_pos;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_current;
 
-  Eigen::VectorXd q_prev_;
-  Eigen::VectorXd q_int_;
-  Eigen::VectorXd v_int_;
+  Eigen::VectorXd vel_max_;
 
-
+  double kp_;
+  double ki_;
+  double lpf_alpha_;
+  double integral_clamp_;
 };
 } // namespace joint_controllers
 
