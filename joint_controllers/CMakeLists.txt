@@ -19,7 +19,6 @@ generate_parameter_library(joint_controllers_params
 )
 
 ament_auto_add_library(joint_controllers SHARED
-  src/tsid_position_control.cpp
   src/joint_space_controller.cpp
   src/tsid_velocity_control.cpp
   src/joint_space_vel_controller.cpp
