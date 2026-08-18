@@ -90,10 +90,6 @@ joint_position_controller:
       - fr3_joint7
     interface_name: position
     velocity_scaling: 0.5
-    Kp: 0.0
-    Ki: 0.0
-    lpf_alpha: 0.2
-    integral_clamp: 0.05 
 
 # joint_position_example_controller:
 #   ros__parameters:

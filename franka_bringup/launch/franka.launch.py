@@ -295,30 +295,30 @@ def generate_robot_nodes(context):
     nodes += setup_tsid_controllers(context, arm_prefix=arm_prefix)
 
     ## BEGIN DEBUG
-    # example_controllers_path = PathJoinSubstitution(
-    #         [
-    #             get_package_share_directory('franka_bringup'),
-    #             'config',
-    #             'controllers.yaml',
-    #         ]
-    #     ).perform(context)
+    example_controllers_path = PathJoinSubstitution(
+            [
+                get_package_share_directory('franka_bringup'),
+                'config',
+                'controllers.yaml',
+            ]
+        ).perform(context)
 
-    # example_ctrllers_parsed_yaml = parse_parametric_yaml(
-    #         source_files=[example_controllers_path], param_rewrites={}
-    #     )
+    example_ctrllers_parsed_yaml = parse_parametric_yaml(
+            source_files=[example_controllers_path], param_rewrites={}
+        )
     
-    # launch_controller = GroupAction(
-    #         [
-    #             generate_load_controller_launch_description(
-    #                 controller_name="gravity_compensation_example_controller",
-    #                 controller_params_file=example_ctrllers_parsed_yaml,
-    #                 extra_spawner_args=["--inactive", "--controller-manager-timeout"," 120"],
-    #             )
-    #         ],
-    #         forwarding=False,
-    #     )
+    launch_controller = GroupAction(
+            [
+                generate_load_controller_launch_description(
+                    controller_name="joint_position_example_controller",
+                    controller_params_file=example_ctrllers_parsed_yaml,
+                    extra_spawner_args=["--inactive", "--controller-manager-timeout"," 120"],
+                )
+            ],
+            forwarding=False,
+        )
 
-    # nodes += [launch_controller]
+    nodes += [launch_controller]
     ## END DEBUG
     return nodes
 

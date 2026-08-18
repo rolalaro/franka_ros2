@@ -31,6 +31,121 @@ namespace joint_controllers
 {
 using std::placeholders::_1;
 
+SCurveProfile makeSCurve(double distance,
+                         double v_max,
+                         double a_max,
+                         double j_max)
+{
+  SCurveProfile profile;
+
+  if (distance <= 0.0) {
+    return profile;
+  }
+
+  if (v_max <= 0.0 || a_max <= 0.0 || j_max <= 0.0) {
+    throw std::invalid_argument(
+        "S-curve limits must be strictly positive.");
+  }
+
+  // ------------------------------------------------------------
+  // Compute the acceleration profile required to reach a given
+  // peak velocity.
+  // ------------------------------------------------------------
+  auto compute_for_peak_velocity =
+      [&](double v_peak)
+      {
+        double tj;
+        double ta;
+
+        const double v_at_a_max =
+            a_max * a_max / j_max;
+
+        if (v_peak <= v_at_a_max) {
+          // Jerk-limited triangular acceleration.
+          tj = std::sqrt(v_peak / j_max);
+          ta = 0.0;
+        } else {
+          // Reach a_max, then hold it.
+          tj = a_max / j_max;
+          ta = v_peak / a_max - tj;
+        }
+
+        // Distance travelled during the acceleration phase.
+        //
+        // x_acc =
+        // J * tj * (ta^2 + 3*ta*tj + 2*tj^2) / 2
+        //
+        const double x_acc =
+            j_max * tj *
+            (ta * ta +
+             3.0 * ta * tj +
+             2.0 * tj * tj) / 2.0;
+
+        return std::pair<double, std::pair<double, double>>{
+            2.0 * x_acc,
+            {tj, ta}
+        };
+      };
+
+  // ------------------------------------------------------------
+  // First check whether v_max can actually be reached.
+  // ------------------------------------------------------------
+  const auto [distance_at_vmax, times_at_vmax] =
+      compute_for_peak_velocity(v_max);
+
+  double v_peak;
+
+  if (distance >= distance_at_vmax) {
+    // We can reach v_max and have a constant velocity segment.
+    v_peak = v_max;
+
+    profile.tv =
+        (distance - distance_at_vmax) / v_peak;
+  } else {
+    // We cannot reach v_max.
+    //
+    // Find the peak velocity such that the acceleration and
+    // deceleration phases alone exactly consume the distance.
+    double lo = 0.0;
+    double hi = v_max;
+
+    for (int iteration = 0; iteration < 100; ++iteration) {
+      const double mid = 0.5 * (lo + hi);
+
+      const auto [d_mid, unused] =
+          compute_for_peak_velocity(mid);
+
+      if (d_mid < distance) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+
+    v_peak = 0.5 * (lo + hi);
+    profile.tv = 0.0;
+  }
+
+  const auto [unused_distance, times] =
+      compute_for_peak_velocity(v_peak);
+
+  profile.v = v_peak;
+  profile.tj = times.first;
+  profile.ta = times.second;
+
+  if (profile.tj > 0.0) {
+    profile.j = profile.v <= a_max * a_max / j_max
+                    ? profile.v /
+                          (profile.tj * profile.tj)
+                    : j_max;
+  }
+
+  profile.a = profile.j * profile.tj;
+
+  return profile;
+}
+
+
 JointSpacePositionController::JointSpacePositionController()
 : controller_interface::ControllerInterface(),
   dt_(0, 0) {}
@@ -62,14 +177,6 @@ controller_interface::CallbackReturn JointSpacePositionController::on_configure(
   q_start_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
   q_end_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
   q_cmd_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  q_openloop_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  q_filtered_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  q_desired_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  q_cmd_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  integral_error_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  last_commanded_position_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  last_commanded_velocity_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());   
-  last_commanded_acceleration_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());  
 
   std::string controller_name = get_node()->get_name();
   // Position command
@@ -85,7 +192,6 @@ controller_interface::CallbackReturn JointSpacePositionController::on_configure(
 
   // Initializing containers
   vel_max_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
-  vel_min_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
   accel_max_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
   jerk_max_ = Eigen::VectorXd::Zero(params_.joint_command_names.size());
 
@@ -194,20 +300,25 @@ controller_interface::CallbackReturn JointSpacePositionController::on_configure(
     get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("joint_cmd_pos", 10);
 
   v_scaling_ = params_.velocity_scaling;
-  kp_ = params_.Kp;
-  ki_ = params_.Ki;
-  lpf_alpha_ = params_.lpf_alpha;
-  integral_clamp_ = params_.integral_clamp;
   vel_max_ =
     v_scaling_ * model_.upperVelocityLimit.tail(model_.nv - 6);
-  vel_min_ =
-    -v_scaling_ * model_.lowerVelocityLimit.tail(model_.nv - 6);
 
   for(const auto & joint : joint_names_) {
     int joint_id = jnt_id_[joint];
     if(joint.find(std::to_string(joint_id + 1)) == std::string::npos) throw; // Ensure mapping of the order of the joints names and Franka library limits
     accel_max_[joint_id] = franka::kMaxJointAcceleration[joint_id];
     jerk_max_[joint_id] = franka::kMaxJointJerk[joint_id];
+  }
+
+  // Prepare message containing the command sent by the user
+  msg_cmd_.name = joint_command_names_;
+  msg_cmd_.position.resize(joint_command_names_.size());
+  msg_cmd_.velocity.resize(joint_command_names_.size());
+  msg_cmd_.effort.resize(joint_command_names_.size());
+
+  for (size_t i = 0; i < joint_command_names_.size(); i++) {
+    msg_cmd_.velocity[i] = 0.0;
+    msg_cmd_.effort[i] = 0.0;
   }
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -244,7 +355,8 @@ controller_interface::CallbackReturn JointSpacePositionController::on_activate(
   q_start_ = state.first.tail(params_.joint_command_names.size());
 
   q_end_ = q_start_;
-
+  q_cmd_ = q_start_;
+  trajectory_active_ = false;
   first_iter_ = true;
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -291,6 +403,7 @@ controller_interface::CallbackReturn JointSpacePositionController::on_deactivate
 std::pair<Eigen::VectorXd, Eigen::VectorXd> JointSpacePositionController::getActualState() const
 {
   Eigen::VectorXd q = Eigen::VectorXd::Zero(model_.nq);
+  q[6] = 1.0; // To have a valid quaternion for the free-flying base
   Eigen::VectorXd v = Eigen::VectorXd::Zero(model_.nv);
 
   for (const auto & joint : joint_names_) {
@@ -313,13 +426,6 @@ void JointSpacePositionController::updateParams()
     v_scaling_ = params_.velocity_scaling;
     vel_max_ =
       v_scaling_ * model_.upperVelocityLimit.tail(model_.nv - 6);
-    vel_min_ =
-      -v_scaling_ * model_.lowerVelocityLimit.tail(model_.nv - 6);
-
-    kp_ = params_.Kp;
-    ki_ = params_.Ki;
-    lpf_alpha_ = params_.lpf_alpha;
-    integral_clamp_ = params_.integral_clamp;
 
     for (const auto & joint : joint_names_) {
       if (std::find(
@@ -327,7 +433,6 @@ void JointSpacePositionController::updateParams()
           joint) == joint_command_names_.end())
       {
         vel_max_[model_.getJointId(joint) - 2] = 0;
-        vel_min_[model_.getJointId(joint) - 2] = 0;
       }
     }
 
@@ -342,22 +447,16 @@ controller_interface::return_type JointSpacePositionController::update(
 
   updateParams();
 
-  std::pair<Eigen::VectorXd, Eigen::VectorXd> state = getActualState();
-  state.first[6] = 1.0;
-  Eigen::VectorXd &q = state.first /* , &v = state.second */;
-
-  interpolate(t_curr_, q.tail(7)); // compute the velocity and the position
-
-  /// BEGIN compute_problem_and_set_command(state.first, state.second); //q and v
+  interpolate(t_curr_); // compute the velocity and the position
   
   // Setting the command to the joint command interfaces
-  for (const auto & joint : joint_command_names_) {
-    if (!command_interfaces_[jnt_command_id_[joint]].set_value(
-        q_cmd_[model_.getJointId(joint) - 2])) // Minus 2 to remove "universe" and "root_joint" joints
+  for (int i = 0; i < 7; ++i) {
+    if (!command_interfaces_[i].set_value(
+        q_cmd_[i])) 
     {
       RCLCPP_ERROR(
-        get_node()->get_logger(), "Failed to set command for joint %s",
-        joint.c_str());
+        get_node()->get_logger(), "Failed to set command for joint %d",
+        i);
     }
   }
 
@@ -367,24 +466,15 @@ controller_interface::return_type JointSpacePositionController::update(
   }
 
   publisher_curr_pos->publish(pub_pos);
-  /// END compute_problem_and_set_command(state.first, state.second); //q and v
 
   //Publishing the current command
-  auto message = sensor_msgs::msg::JointState();
-  message.header.stamp = get_node()->get_clock()->now();
-
-  message.name = joint_command_names_;
-  message.position.resize(joint_command_names_.size());
-  message.velocity.resize(joint_command_names_.size());
-  message.effort.resize(joint_command_names_.size());
+  msg_cmd_.header.stamp = get_node()->get_clock()->now();
 
   for (size_t i = 0; i < joint_command_names_.size(); i++) {
-    message.position[i] = q_end_[i];
-    message.velocity[i] = 0.0;
-    message.effort[i] = 0.0;
+    msg_cmd_.position[i] = q_end_[i];
   }
 
-  publisher_current_cmd->publish(message);
+  publisher_current_cmd->publish(msg_cmd_);
 
   return controller_interface::return_type::OK;
 }
@@ -425,139 +515,94 @@ void JointSpacePositionController::setPositionCb(
     ref[i] = msg->data[i];
   }
 
-  q_start_ = getActualState().first.tail(params_.joint_command_names.size());
+  q_start_ = q_cmd_;
   q_end_ = ref;
 
-  t_curr_ = 0.;
-  integral_error_ = Eigen::VectorXd::Zero(q_cmd_.size());
-  first_iter_ = true;
+  // ------------------------------------------------------------
+  // Check whether this is effectively a zero-length trajectory.
+  // ------------------------------------------------------------
+  constexpr double position_tolerance = 1e-7;
 
-}
-
-void JointSpacePositionController::interpolate(double t_curr, const Eigen::VectorXd &q_meas)
-{
-  if (q_end_.isApprox(q_start_,1e-5)) {
+  if ((q_end_ - q_start_).norm() < position_tolerance) {
+    trajectory_active_ = false;
     q_cmd_ = q_end_;
-    q_openloop_ = q_end_;
     return;
   }
 
-  double dt = dt_.seconds();
-  if (first_iter_) {
-    dt = 0.;
-    q_start_ = q_meas;
-    q_filtered_ = q_meas;
-    last_commanded_position_ = q_meas; // or position_start_
-    last_commanded_velocity_ = Eigen::VectorXd::Zero(q_cmd_.size()); 
-    last_commanded_acceleration_ = Eigen::VectorXd::Zero(q_cmd_.size()); 
-    first_iter_ = false;
-  }
+  // ------------------------------------------------------------
+  // Compute normalized scalar limits.
+  //
+  // q_i = q_start_i + dq_i * s
+  //
+  // dq_i = dq_i * s_dot
+  // ddq_i = dq_i * s_ddot
+  // dddq_i = dq_i * s_dddot
+  // ------------------------------------------------------------
 
+  double s_vel_max = std::numeric_limits<double>::infinity();
+  double s_acc_max = std::numeric_limits<double>::infinity();
+  double s_jerk_max = std::numeric_limits<double>::infinity();
 
-  int maxDiffIndex = 0;
-  double maxDiff = std::abs(q_end_[0] - q_start_[0]);
+  for (int i = 0; i < params_.joint_command_names.size(); ++i) {
+    const double dq =
+        std::abs(q_end_[i] - q_start_[i]);
 
-  for (Eigen::Index i = 1; i < q_start_.size(); ++i) {
-    double currentDiff = std::abs(q_end_[i] - q_start_[i]);
-    if (currentDiff > maxDiff) {
-      maxDiff = currentDiff;
-      maxDiffIndex = i;
-    }
-  }
-  double a_max = accel_max_[maxDiffIndex];
-  double v_max = vel_max_[maxDiffIndex];
-  t_acc_ = v_max / a_max;
-  t_flat_ =
-    (std::abs(q_end_[maxDiffIndex] - q_start_[maxDiffIndex]) - v_max * t_acc_) /
-    v_max;
-
-  double s = 0;
-  // double s_dot = 0;
-
-  // Computation of a trapezoidal trajectory
-  for (auto joint : params_.joint_command_names) {
-    int joint_id = jnt_id_[joint];
-    double accel = accel_max_[joint_id];
-    double vel = vel_max_[joint_id];
-    if (t_curr < t_acc_) {
-      s = 0.5 * accel * t_curr * t_curr;
-      // s_dot = accel * t_curr;
-    } else if (t_curr >= t_acc_ && t_curr < t_acc_ + t_flat_) {
-      s = vel *
-        (std::abs(q_end_[joint_id] - q_start_[joint_id])) /
-        (std::abs(q_end_[maxDiffIndex] - q_start_[maxDiffIndex])) *
-        (t_curr - t_acc_ / 2 );
-      // s_dot = vel * (std::abs(q_end_[joint_id] - q_start_[joint_id])) /
-      //   (std::abs(q_end_[maxDiffIndex] - q_start_[maxDiffIndex]));
-    } else if (t_curr >= t_acc_ + t_flat_ && t_curr < t_flat_ + 2 * t_acc_) {
-      s = std::abs(q_end_[joint_id] - q_start_[joint_id]) -
-        0.5 * accel *
-        (t_flat_ + 2 * t_acc_ - t_curr) *
-        (t_flat_ + 2 * t_acc_ - t_curr);
-      // s_dot = vel * (std::abs(q_end_[joint_id] - q_start_[joint_id])) /
-      //   (std::abs(q_end_[maxDiffIndex] - q_start_[maxDiffIndex])) - accel *
-      //   (t_curr - t_flat_ - t_acc_);
-    } else {
-      s = std::abs(q_end_[joint_id] - q_start_[joint_id]);
-      // s_dot = 0;
-    }
-    
-    double sign = copysign(1.0, q_end_[joint_id] - q_start_[joint_id]);
-    q_openloop_[joint_id] = q_start_[joint_id] + sign * s;
-    
-    // ---- feedback trim ----
-    // 1) low-pass the noisy measurement (cheap alternative to a Kalman filter;
-    //    we don't need a velocity estimate, so a state observer is overkill)
-    q_filtered_[joint_id] =
-      lpf_alpha_ * q_meas[joint_id] + (1.0 - lpf_alpha_) * q_filtered_[joint_id];
-
-    // 2) tracking error against the feedforward reference
-    double error = q_openloop_[joint_id] - q_filtered_[joint_id];
-
-    // 3) integral with anti-windup clamp
-    if (dt > 0.0) {
-      integral_error_[joint_id] =
-        std::clamp(integral_error_[joint_id] + error * dt, -integral_clamp_, integral_clamp_);
+    if (dq < position_tolerance) {
+      continue;
     }
 
-    double correction = kp_ * error + ki_ * integral_error_[joint_id];
+    s_vel_max =
+        std::min(s_vel_max, vel_max_[i] / dq);
 
-    // 4) apply correction to the commanded position, then hard-clamp to
-    //    [start, end] so overshoot past the target is structurally impossible
-    double lo = std::min(q_start_[joint_id], q_end_[joint_id]);
-    double hi = std::max(q_start_[joint_id], q_end_[joint_id]);
-    q_desired_[joint_id] =
-      std::clamp(q_openloop_[joint_id] + correction, lo, hi);
+    s_acc_max =
+        std::min(s_acc_max, accel_max_[i] / dq);
+
+    s_jerk_max =
+        std::min(s_jerk_max, jerk_max_[i] / dq);
   }
 
-  // Rate-limit per joint using libfranka's helper (one call per joint, or use franka_hw wrapper if it batches)
-  for (auto joint : params_.joint_command_names) {
-    int joint_id = jnt_id_[joint];
-    double limited = franka::limitRate(
-      vel_max_[joint_id], vel_min_[joint_id], accel_max_[joint_id], jerk_max_[joint_id],
-      q_desired_[joint_id],
-      last_commanded_position_[joint_id],
-      last_commanded_velocity_[joint_id],
-      last_commanded_acceleration_[joint_id]);
+  // ------------------------------------------------------------
+  // Generate a normalized trajectory s(t): 0 -> 1.
+  // ------------------------------------------------------------
+  const double &conservative_factor = params_.velocity_scaling;
+  s_vel_max *= conservative_factor;
+  s_acc_max *= conservative_factor;
+  s_jerk_max *= conservative_factor;
+  s_curve_ =
+      makeSCurve(
+          1.0,
+          s_vel_max,
+          s_acc_max,
+          s_jerk_max);
 
-    double new_vel = (limited - last_commanded_position_[joint_id]) / dt_.seconds();
-    double new_acc = (new_vel - last_commanded_velocity_[joint_id]) / dt_.seconds();
+  t_curr_ = 0.;
+  first_iter_ = true;
+  trajectory_active_ = true;
+}
 
-    q_cmd_[joint_id] = limited;
-    last_commanded_acceleration_[joint_id] = new_acc;
-    last_commanded_velocity_[joint_id] = new_vel;
-    last_commanded_position_[joint_id] = limited;
+void JointSpacePositionController::interpolate(double t_curr)
+{
+  if (!trajectory_active_) {
+    q_cmd_ = q_end_;
+    return;
   }
-  RCLCPP_INFO_STREAM(get_node()->get_logger(), "vel_max_ = " << vel_max_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(), "vel_min_ = " << vel_min_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(), "accel_max_ = " << accel_max_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(), "jerk_max_ = " << jerk_max_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"q_meas(" <<  t_curr << ") = " << q_meas.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"q_start_(" <<  t_curr << ") = " << q_start_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"q_end_(" <<  t_curr << ") = " << q_end_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"q_cmd_(" <<  t_curr << ") = " << q_cmd_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"last_commanded_velocity_(" <<  t_curr << ") = " << last_commanded_velocity_.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),"last_commanded_acceleration_(" <<  t_curr << ") = " << last_commanded_acceleration_.transpose());
+
+  const double s =
+      s_curve_.position(t_curr);
+
+  for (Eigen::Index i = 0; i < q_start_.size(); ++i) {
+    q_cmd_[i] =
+        q_start_[i] +
+        s * (q_end_[i] - q_start_[i]);
+  }
+
+  // ------------------------------------------------------------
+  // End condition.
+  // ------------------------------------------------------------
+  if (t_curr >= s_curve_.total_time()) {
+    q_cmd_ = q_end_;
+    trajectory_active_ = false;
+  }
 }
 
 } // namespace joint_controllers

@@ -23,4 +23,4 @@ ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint_space_controller:
 
     interface_name: position
 
-    velocity_scaling: 1.0
+    velocity_scaling: 0.5

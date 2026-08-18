@@ -36,6 +36,107 @@
 
 namespace joint_controllers
 {
+struct SCurveProfile {
+  // Duration of the jerk-up, constant-acceleration, and jerk-down
+  // portions of the acceleration phase.
+  double tj{0.0};
+  double ta{0.0};
+
+  // Constant-velocity duration.
+  double tv{0.0};
+
+  // Peak values actually used by the profile.
+  double j{0.0};
+  double a{0.0};
+  double v{0.0};
+
+  double total_time() const {
+    return 4.0 * tj + 2.0 * ta + tv;
+  }
+
+  double position(double t) const {
+    if (t <= 0.0) {
+      return 0.0;
+    }
+
+    const double T = total_time();
+
+    if (t >= T) {
+      return 1.0;
+    }
+
+    // ------------------------------------------------------------
+    // Segment 1: +jerk
+    // ------------------------------------------------------------
+    if (t < tj) {
+      return j * t * t * t / 6.0;
+    }
+
+    // State at end of segment 1
+    const double x1 = j * tj * tj * tj / 6.0;
+    const double v1 = 0.5 * j * tj * tj;
+    const double a1 = j * tj;
+
+    // ------------------------------------------------------------
+    // Segment 2: constant acceleration
+    // ------------------------------------------------------------
+    if (t < tj + ta) {
+      const double tau = t - tj;
+
+      return x1 +
+             v1 * tau +
+             0.5 * a1 * tau * tau;
+    }
+
+    // State at end of segment 2
+    const double x2 =
+        x1 +
+        v1 * ta +
+        0.5 * a1 * ta * ta;
+
+    const double v2 =
+        v1 + a1 * ta;
+
+    // ------------------------------------------------------------
+    // Segment 3: -jerk
+    // ------------------------------------------------------------
+    if (t < 2.0 * tj + ta) {
+      const double tau = t - (tj + ta);
+
+      return x2 +
+             v2 * tau +
+             0.5 * a1 * tau * tau -
+             j * tau * tau * tau / 6.0;
+    }
+
+    // State at end of acceleration phase
+    const double x3 =
+        x2 +
+        v2 * tj +
+        0.5 * a1 * tj * tj -
+        j * tj * tj * tj / 6.0;
+
+    // This should be the midpoint of the trajectory.
+    const double t_acc = 2.0 * tj + ta;
+
+    // ------------------------------------------------------------
+    // Segment 4: constant velocity
+    // ------------------------------------------------------------
+    if (t < t_acc + tv) {
+      const double tau = t - t_acc;
+      return x3 + v * tau;
+    }
+
+    // ------------------------------------------------------------
+    // Use symmetry for the second half.
+    // ------------------------------------------------------------
+    const double tau = T - t;
+
+    // Distance travelled during the last tau seconds is identical
+    // to the distance travelled during the first tau seconds.
+    return 1.0 - position(tau);
+  }
+};
 
 class JointSpacePositionController : public controller_interface::ControllerInterface
 {
@@ -63,7 +164,7 @@ public:
 
   void setPositionCb(std_msgs::msg::Float64MultiArray::ConstSharedPtr msg);
 
-  void interpolate(double t, const Eigen::VectorXd &q_meas);
+  void interpolate(double t);
 
   virtual void updateParams();
   std::pair<Eigen::VectorXd, Eigen::VectorXd> getActualState() const;
@@ -87,40 +188,23 @@ protected:
   rclcpp::Duration dt_;
   bool first_iter_;
 
-  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_vel;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_pos;
-  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_current;
-
-  Eigen::VectorXd vel_min_;
-  Eigen::VectorXd vel_max_;
-
-  double kp_;
-  double ki_;
-  double lpf_alpha_;
-  double integral_clamp_;
 
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr
     joint_cmd_sub_;
-  double t_acc_ = 0.0;
-  double t_flat_ = 0.0;
   double t_curr_ = 0.0;
-  double v_max = 2.5;
 
   Eigen::VectorXd q_start_; // configuration from which the servoing started
   Eigen::VectorXd q_end_; // reference set by the user
-  Eigen::VectorXd q_openloop_; // q that would result from the perfect application of the commands
-  Eigen::VectorXd q_filtered_; // q filtered using a loz pass exponential filter
-  Eigen::VectorXd q_desired_; // soft target, before Franka clamping
   Eigen::VectorXd q_cmd_; // command sent to the hardware interface
-  Eigen::VectorXd integral_error_;
-  Eigen::VectorXd last_commanded_position_;
-  Eigen::VectorXd last_commanded_velocity_;   
-  Eigen::VectorXd last_commanded_acceleration_; 
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr publisher_current_cmd;
+  sensor_msgs::msg::JointState msg_cmd_;
 
   Eigen::VectorXd accel_max_;
   Eigen::VectorXd jerk_max_;
-
+  Eigen::VectorXd vel_max_;
+  bool trajectory_active_ = false;
+  SCurveProfile s_curve_;
 };
 } // namespace joint_controllers
 
