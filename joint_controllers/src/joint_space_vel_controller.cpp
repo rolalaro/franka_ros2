@@ -54,7 +54,7 @@ controller_interface::CallbackReturn JointSpaceVelocityController::on_init()
         "Failed to initialize ParamListener.");
       return controller_interface::CallbackReturn::ERROR;
     }
-    params_ = param_listener_->get_params();
+    params_ = param_listener_->get_params(); 
   } catch (const std::exception & e) {
     RCLCPP_ERROR(
       get_node()->get_logger(),
@@ -75,7 +75,7 @@ controller_interface::CallbackReturn JointSpaceVelocityController::on_configure(
   }
 
   param_listener_->refresh_dynamic_parameters();
-  params_ = param_listener_->get_params();
+  params_ = param_listener_->get_params(); 
 
   // Check if the actuator names are not empty
   if (params_.joint_state_names.empty()) {
@@ -236,12 +236,7 @@ JointSpaceVelocityController::state_interface_configuration() const
 controller_interface::InterfaceConfiguration
 JointSpaceVelocityController::command_interface_configuration() const
 {
-  std::string interface;
-  if (params_.use_sim_time) {
-    interface = "/position";
-  } else {
-    interface = "/velocity";
-  }
+  std::string interface = "/velocity";
   std::vector<std::string> command_interfaces_config_names;
   for (const auto & joint : params_.joint_command_names) {
     const auto full_name = joint + interface;
@@ -327,7 +322,7 @@ JointSpaceVelocityController::getActualState() const
 void JointSpaceVelocityController::updateParams()
 {
   if (param_listener_->is_old(params_)) {
-    params_ = param_listener_->get_params();
+    params_ = param_listener_->get_params(); 
     RCLCPP_INFO(get_node()->get_logger(), "Updating parameters");
 
     v_scaling_ = params_.velocity_scaling;
@@ -381,90 +376,46 @@ void JointSpaceVelocityController::check_limit_reached(
     
     auto id_with_offset = model_.getJointId(joint) - 2;
     auto nq_minus_floating_base = model_.nq - 7; 
-    if (!params_.use_sim_time) {
-      if (std::abs(
+    if (std::abs(
           q.tail(nq_minus_floating_base)[id_with_offset] -
           q_min_[id_with_offset]) < threshold)
-      {
+    {
 
-        RCLCPP_WARN_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 5000,
-          "Joint %s reached the lower limit: q = %f, q_min = %f",
-          joint.c_str(), q.tail(nq_minus_floating_base)[id_with_offset],
-          q_min_[id_with_offset]);
+      RCLCPP_WARN_THROTTLE(
+        get_node()->get_logger(), *get_node()->get_clock(), 5000,
+        "Joint %s reached the lower limit: q = %f, q_min = %f",
+        joint.c_str(), q.tail(nq_minus_floating_base)[id_with_offset],
+        q_min_[id_with_offset]);
 
-        q_cmd_[id_with_offset] = q.tail(nq_minus_floating_base)[id_with_offset];
+      q_cmd_[id_with_offset] = q.tail(nq_minus_floating_base)[id_with_offset];
 
-        if (v_com_[id_with_offset] < 0) {
-          joint_limit_reached_ = true;
-          v_com_[id_with_offset] = 0;
-        } else {
-          joint_limit_reached_ = false;
-        }
-      } else if (std::abs(
-          q.tail(nq_minus_floating_base)[id_with_offset] -
-          q_max_[id_with_offset]) < threshold)
-      {
-        RCLCPP_WARN_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 5000,
-          "Joint %s reached the upper limit: q = %f, q_max = %f",
-          joint.c_str(), q.tail(
-            nq_minus_floating_base)[id_with_offset], q_max_[id_with_offset]);
-
-        q_cmd_[id_with_offset] = q.tail(nq_minus_floating_base)[id_with_offset];
-
-        if (v_com_[id_with_offset] > 0) {
-          joint_limit_reached_ = true;
-
-          v_com_[id_with_offset] = 0;
-        } else {
-          joint_limit_reached_ = false;
-        }
+      if (v_com_[id_with_offset] < 0) {
+        joint_limit_reached_ = true;
+        v_com_[id_with_offset] = 0;
+      } else {
+        joint_limit_reached_ = false;
       }
-      indx++;
-    } else {
-      if (std::abs(
-          q_cmd_.tail(nq_minus_floating_base)[id_with_offset] -
-          q_min_[id_with_offset]) < threshold)
-      {
+    } else if (std::abs(
+        q.tail(nq_minus_floating_base)[id_with_offset] -
+        q_max_[id_with_offset]) < threshold)
+    {
+      RCLCPP_WARN_THROTTLE(
+        get_node()->get_logger(), *get_node()->get_clock(), 5000,
+        "Joint %s reached the upper limit: q = %f, q_max = %f",
+        joint.c_str(), q.tail(
+          nq_minus_floating_base)[id_with_offset], q_max_[id_with_offset]);
 
-        RCLCPP_WARN_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 5000,
-          "Joint %s reached the lower limit: q = %f, q_min = %f",
-          joint.c_str(), q.tail(nq_minus_floating_base)[id_with_offset],
-          q_min_[id_with_offset]);
+      q_cmd_[id_with_offset] = q.tail(nq_minus_floating_base)[id_with_offset];
 
-        q_cmd_[id_with_offset] = q.tail(nq_minus_floating_base)[id_with_offset];
+      if (v_com_[id_with_offset] > 0) {
+        joint_limit_reached_ = true;
 
-        if (v_com_[id_with_offset] < 0) {
-          joint_limit_reached_ = true;
-
-          v_com_[id_with_offset] = 0;
-        } else {
-          joint_limit_reached_ = false;
-        }
-      } else if (std::abs(
-          q_cmd_.tail(nq_minus_floating_base)[id_with_offset] -
-          q_max_[id_with_offset]) < threshold)
-      {
-        RCLCPP_WARN_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 5000,
-          "Joint %s reached the upper limit: q = %f, q_max = %f",
-          joint.c_str(), q.tail(
-            nq_minus_floating_base)[id_with_offset], q_max_[id_with_offset]);
-
-        q_cmd_[id_with_offset] = q.tail(nq_minus_floating_base)[id_with_offset];
-
-        if (v_com_[id_with_offset] > 0) {
-          joint_limit_reached_ = true;
-
-          v_com_[id_with_offset] = 0;
-        } else {
-          joint_limit_reached_ = false;
-        }
+        v_com_[id_with_offset] = 0;
+      } else {
+        joint_limit_reached_ = false;
       }
-      indx++;
     }
+    indx++;
   }
 
 }
@@ -503,42 +454,20 @@ JointSpaceVelocityController::update(
         get_node()->get_logger(), *get_node()->get_clock(), 5000,
         "Joint limit reached");
 
-      if (!params_.use_sim_time) {
-        if (!command_interfaces_[jnt_command_id_[joint]].set_value(
-            0.0))
-        {
-          RCLCPP_ERROR(
-            get_node()->get_logger(),
-            "Failed to set command for joint %s", joint.c_str());
-        }
-      } else {
-        if (!command_interfaces_[jnt_command_id_[joint]].set_value(
-            q[model_.getJointId(joint) - 2]))
-        {
-          RCLCPP_ERROR(
-            get_node()->get_logger(),
-            "Failed to set command for joint %s", joint.c_str());
-        }
-
+      if (!command_interfaces_[jnt_command_id_[joint]].set_value(
+          0.0))
+      {
+        RCLCPP_ERROR(
+          get_node()->get_logger(),
+          "Failed to set command for joint %s", joint.c_str());
       }
     } else {
-      if (!params_.use_sim_time) {
-        if (!command_interfaces_[jnt_command_id_[joint]].set_value(
-            v_com_[model_.getJointId(joint) - 2]))
-        {
-          RCLCPP_ERROR(
-            get_node()->get_logger(),
-            "Failed to set command for joint %s", joint.c_str());
-        }
-      } else {
-        if (!command_interfaces_[jnt_command_id_[joint]].set_value(
-            q_cmd_[model_.getJointId(joint) - 2]))
-        {
-          RCLCPP_ERROR(
-            get_node()->get_logger(),
-            "Failed to set command for joint %s", joint.c_str());
-        }
-
+      if (!command_interfaces_[jnt_command_id_[joint]].set_value(
+          v_com_[model_.getJointId(joint) - 2]))
+      {
+        RCLCPP_ERROR(
+          get_node()->get_logger(),
+          "Failed to set command for joint %s", joint.c_str());
       }
     }
   }
