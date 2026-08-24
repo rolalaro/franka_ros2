@@ -96,13 +96,13 @@ from launch_pal.param_utils import parse_parametric_yaml, merge_param_files
 # for the Franka robot. This function is called by the main launch file.
 # It uses the xacro library to process the URDF file and generate the robot description.
 
-def setup_tsid_controller(context, controller_name, arm_prefix, load_gains_separately=False):
+def setup_joint_controller(context, controller_name, arm_prefix):
     robot_type = read_launch_argument("robot_type", context)
 
     param_file = os.path.join(
         get_package_share_directory("franka_bringup"),
         "config",
-        "tsid",
+        "joint_controllers",
         f"{controller_name}.yaml",
     )
 
@@ -117,22 +117,6 @@ def setup_tsid_controller(context, controller_name, arm_prefix, load_gains_separ
     parsed_yaml = parse_parametric_yaml(
         source_files=[param_file], param_rewrites=remappings
     )
-
-    if load_gains_separately:
-
-        gains_file = os.path.join(
-            get_package_share_directory("franka_bringup"),
-            "config",
-            "tsid",
-            "gains",
-            f"{controller_name}.yaml",
-        )
-
-        parsed_gains = parse_parametric_yaml(
-            source_files=[gains_file], param_rewrites=remappings
-        )
-
-        parsed_yaml = merge_param_files([parsed_yaml, parsed_gains])
 
     launch_controller = GroupAction(
         [
@@ -149,12 +133,12 @@ def setup_tsid_controller(context, controller_name, arm_prefix, load_gains_separ
 
     return
 
-def setup_tsid_controllers(context, arm_prefix, *args, **kwargs):
-    joint_space_controller_vel = setup_tsid_controller(
-        context, "joint_space_controller_vel", arm_prefix, load_gains_separately=True
+def setup_joint_controllers(context, arm_prefix, *args, **kwargs):
+    joint_space_controller_vel = setup_joint_controller(
+        context, "joint_space_controller_vel", arm_prefix
     )
-    joint_space_controller = setup_tsid_controller(
-        context, "joint_space_controller", arm_prefix, load_gains_separately=True
+    joint_space_controller = setup_joint_controller(
+        context, "joint_space_controller", arm_prefix
     )
 
     return [
@@ -292,7 +276,7 @@ def generate_robot_nodes(context):
         ),
     ]
 
-    nodes += setup_tsid_controllers(context, arm_prefix=arm_prefix)
+    nodes += setup_joint_controllers(context, arm_prefix=arm_prefix)
 
     ## BEGIN DEBUG
     example_controllers_path = PathJoinSubstitution(
