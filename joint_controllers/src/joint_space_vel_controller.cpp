@@ -111,8 +111,6 @@ controller_interface::CallbackReturn JointSpaceVelocityController::on_configure(
   joint_state_interfaces_.resize(joint_names_.size());
   state_interface_names_.resize(joint_names_.size());
 
-  q_prev_ = Eigen::VectorXd::Zero(joint_names_.size());
-
   // Creating a map between index and joint
   int idx = 0;
 
@@ -187,9 +185,12 @@ controller_interface::CallbackReturn JointSpaceVelocityController::on_configure(
 
   publisher_curr_vel_ =
     get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("cmd_vel", 10);
+  
+  msg_vel_.data.resize(model_.nv - 6);
 
   publisher_curr_pos_ =
     get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("cmd_pos", 10);
+  msg_pos_.data.resize(model_.nq - 7);
 
   // Position command
   std::string controller_name = get_node()->get_name();
@@ -285,8 +286,7 @@ controller_interface::CallbackReturn JointSpaceVelocityController::on_activate(
   q0 = state.first;
   v0 = state.second;
 
-  q_prev_ = q0.tail(model_.nq - 7);
-  q_cmd_ = q_prev_;
+  q_cmd_ = q0.tail(model_.nq - 7);
 
   v_com_ = Eigen::VectorXd::Zero(model_.nv - 6);
 
@@ -481,8 +481,7 @@ JointSpaceVelocityController::update(
   
   // Computing the velocity command, respecting the maximum tolerated jerk and acceleration
   Eigen::VectorXd &q = state.first, &v = state.second;
-  Eigen::VectorXd v_ = Eigen::VectorXd::Zero(model_.nv);
-  v_.tail(model_.nq - 7) = (q.tail(model_.nq - 7) - q_prev_) / dt_.seconds();
+  Eigen::VectorXd v_ = v.tail(model_.nv- 6);
   
   v_com_ = create_velocity_ramp(v_com_, velocity_cmd_, accel_current_, accel_max_, jerk_max_);
 
@@ -544,19 +543,16 @@ JointSpaceVelocityController::update(
     }
   }
 
-  q_prev_ = q.tail(model_.nq - 7);
-  std_msgs::msg::Float64MultiArray pub;
 
   for (Eigen::Index i = 0; i < v_.size(); i++) {
-    pub.data.push_back(v_[i]);
+    msg_vel_.data[i] = v_[i];
   }
-  publisher_curr_vel_->publish(pub);
+  publisher_curr_vel_->publish(msg_vel_);
 
-  std_msgs::msg::Float64MultiArray pub_pos;
   for (Eigen::Index i = 0; i < q_cmd_.size(); i++) {
-    pub_pos.data.push_back(q_cmd_[i]);
+    msg_pos_.data[i] = q_cmd_[i];
   }
-  publisher_curr_pos_->publish(pub_pos);
+  publisher_curr_pos_->publish(msg_pos_);
 
 
   //Publishing the current command
@@ -613,8 +609,11 @@ Eigen::VectorXd JointSpaceVelocityController::create_velocity_ramp(
 
   const double dt = dt_.seconds();
 
+  //0. Limit the velocity according to the user-defined max velocity
+  Eigen::VectorXd vel_cmd_clamped = vel_cmd.cwiseMax(-v_max_).cwiseMin(v_max_);
+
   // 1. Acceleration that would be needed to reach vel_cmd in one step
-  Eigen::VectorXd accel_desired = (vel_cmd - vel_current) / dt;
+  Eigen::VectorXd accel_desired = (vel_cmd_clamped - vel_current) / dt;
 
   // 2. Clamp desired acceleration to the acceleration limit
   accel_desired = accel_desired.cwiseMax(-0.95*accel_max).cwiseMin(0.95*accel_max);

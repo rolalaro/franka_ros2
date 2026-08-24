@@ -75,7 +75,7 @@ private:
     const Eigen::VectorXd & q, const Eigen::VectorXd & v);
 
   Eigen::VectorXd create_velocity_ramp(const Eigen::VectorXd &vel_current, const Eigen::VectorXd & vel_cmd, Eigen::VectorXd &accel_current, const Eigen::VectorXd &accel_max, const Eigen::VectorXd &jerk_max) const;
-    
+
   InterfaceReferences<hardware_interface::LoanedStateInterface>
   joint_state_interfaces_;
   joint_controllers::Params params_;
@@ -93,11 +93,12 @@ private:
   Eigen::VectorXd q_cmd_;
   Eigen::VectorXd v_com_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_vel_;
+  std_msgs::msg::Float64MultiArray msg_vel_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_curr_pos_;
+  std_msgs::msg::Float64MultiArray msg_pos_;
   Eigen::VectorXd q_int_;
   Eigen::VectorXd v_int_;
   Eigen::VectorXd q_min_, q_max_;
-  Eigen::VectorXd q_prev_;
   Eigen::VectorXd v_max_;
 
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr

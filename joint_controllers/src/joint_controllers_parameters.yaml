@@ -43,8 +43,8 @@ joint_controllers:
 
   velocity_scaling: {
     type: double,
-    default_value: 0.5,
-    description: "Scaling factor for the velocity command for the position controller",
+    default_value: 1.0,
+    description: "Scaling factor for the mqximum velocity of the robot",
   }
 
 
