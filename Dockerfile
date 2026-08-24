@@ -12,6 +12,9 @@ ARG USER_UID=1001
 ARG USER_GID=1001
 ARG USERNAME=user
 
+# Use Bash as the default shell
+SHELL ["/bin/bash", "-c"]
+
 # Install essential packages and ROS development tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -32,8 +35,9 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Setup user configuration
-RUN groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME --groups dialout \
+RUN if [[ `getent passwd $USER_UID | cut -d":" -f 1| wc -w` > 0 ]] ; then userdel `getent passwd $USER_UID | cut -d":" -f 1` ; fi 
+RUN if [[ `getent group $USER_GID | cut -d":" -f 1| wc -w` > 0 ]] ; then groupmod `getent group $USER_GID | cut -d":" -f 1` -n ${USERNAME} ; else  groupadd --gid $USER_GID ${USERNAME}  ; fi
+RUN  useradd --uid $USER_UID --gid $USER_GID -m $USERNAME --groups dialout \
     && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
     && echo "source /opt/ros/$ROS_DISTRO/setup.bash" >> /home/$USERNAME/.bashrc \
     && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> /home/$USERNAME/.bashrc
@@ -86,6 +90,7 @@ WORKDIR /ros2_ws
 COPY . /ros2_ws/src
 RUN sudo chown -R $USERNAME:$USERNAME /ros2_ws \
     && vcs import src < src/dependency.repos --recursive --skip-existing \
+    && git clone https://github.com/pal-robotics/launch_pal.git /ros2_ws/src/launch_pal \
     && sudo apt-get update \
     && rosdep update \
     && rosdep install --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y --skip-keys=zed_wrapper \

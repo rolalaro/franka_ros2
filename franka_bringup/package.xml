@@ -24,7 +24,6 @@
   <exec_depend>teleop_twist_keyboard</exec_depend>
   <exec_depend>franka_example_controllers</exec_depend>
   <exec_depend>franka_mobile</exec_depend>
-  <exec_depend>tsid_ros2</exec_depend>
   <exec_depend>launch_pal</exec_depend>
   <exec_depend>joint_controllers</exec_depend>
 
