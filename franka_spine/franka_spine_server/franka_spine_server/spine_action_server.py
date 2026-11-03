@@ -15,7 +15,7 @@
 """ROS 2 action/service server for the Franka Spine."""
 
 from franka_spine_msgs.action import MoveAbsolute
-from franka_spine_msgs.msg import SpineParameters, UserLimits
+from franka_spine_msgs.msg import SpineParameters, SpinePosition, SpineState, UserLimits
 from franka_spine_msgs.srv import (
     FaultReset,
     GetParameters,
@@ -28,14 +28,9 @@ from franka_spine_msgs.srv import (
 from franka_spine_server.spine_controller import SpineController
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-
-#: Default HTTP request timeout in seconds. Single source of truth for the whole
-#: franka_spine_server package; overridable at runtime via the ``http_timeout`` ROS parameter.
-DEFAULT_HTTP_TIMEOUT = 20.0
-
 
 class SpineActionServer(Node):
     """ROS 2 node that wires services and actions to the SpineController."""
@@ -44,8 +39,12 @@ class SpineActionServer(Node):
         super().__init__('franka_spine_node')
 
         self.declare_parameter('spine_ip', '')
-        self.declare_parameter('http_timeout', DEFAULT_HTTP_TIMEOUT)
+        # Connect + short REST (position/state/halt). Not a move duration.
+        self.declare_parameter('http_timeout', 2.0)
+        # Also the ceiling on how often position and state are read from the
+        # device, across every service client, subscriber and running motion.
         self.declare_parameter('feedback_rate', 10.0)
+        self.declare_parameter('retry_delay', 0.5)
 
         spine_ip = self.get_parameter('spine_ip').get_parameter_value().string_value
         if not spine_ip:
@@ -54,11 +53,17 @@ class SpineActionServer(Node):
 
         http_timeout = self.get_parameter('http_timeout').get_parameter_value().double_value
         feedback_rate = self.get_parameter('feedback_rate').get_parameter_value().double_value
+        retry_delay = self.get_parameter('retry_delay').get_parameter_value().double_value
+
+        if feedback_rate <= 0.0:
+            self.get_logger().fatal("Parameter 'feedback_rate' must be greater than 0")
+            raise ValueError("Parameter 'feedback_rate' must be greater than 0")
 
         self.controller = SpineController(
             spine_ip,
             timeout=http_timeout,
             feedback_rate=feedback_rate,
+            retry_delay=retry_delay,
             logger=self.get_logger(),
         )
         self.get_logger().info(f'Spine controller initialized for {spine_ip}')
@@ -117,7 +122,46 @@ class SpineActionServer(Node):
             callback_group=reentrant_callback_group,
         )
 
+        self.position_publisher = self.create_publisher(SpinePosition, '~/position', 10)
+        self.state_publisher = self.create_publisher(SpineState, '~/state', 10)
+        self._last_position = 0.0
+        # Mutually exclusive so a slow sample cannot overlap with the next tick.
+        self.sample_timer = self.create_timer(
+            1.0 / feedback_rate,
+            self._publish_samples,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+
         self.get_logger().info('Spine action server ready')
+
+    def _publish_samples(self):
+        """Publish position and state at ``feedback_rate`` to any subscribers.
+
+        Nothing is read while nobody is listening, so an idle node leaves the
+        device alone. Reads are shared with the services, so subscribing costs
+        no extra device traffic.
+        """
+        stamp = self.get_clock().now().to_msg()
+
+        if self.position_publisher.get_subscription_count():
+            position = self.controller.get_position()
+            if position.success:
+                self._last_position = position.position
+            message = SpinePosition()
+            message.header.stamp = stamp
+            message.position = self._last_position
+            message.valid = position.success
+            self.position_publisher.publish(message)
+
+        if self.state_publisher.get_subscription_count():
+            state = self.controller.get_state()
+            message = SpineState()
+            message.header.stamp = stamp
+            message.state = state.state
+            message.error_code = state.error_code
+            message.error_description = state.error_description
+            message.valid = state.success
+            self.state_publisher.publish(message)
 
     def _goal_callback(self, goal_request):
         """Accept all goals if no motion is in progress."""

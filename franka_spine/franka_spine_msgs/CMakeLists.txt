@@ -14,6 +14,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
   "msg/UserLimits.msg"
   "msg/SpineParameters.msg"
+  "msg/SpinePosition.msg"
+  "msg/SpineState.msg"
 
   "srv/GetSpineState.srv"
   "srv/GetPosition.srv"

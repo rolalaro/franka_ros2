@@ -20,14 +20,17 @@ controller_manager:
     # gravity_compensation_example_controller:
     #   type: franka_example_controllers/GravityCompensationExampleController
 
-    # cartesian_impedance_example_controller:
-    #   type: franka_example_controllers/CartesianImpedanceExampleController
+    model_example_controller:
+      type: franka_example_controllers/ModelExampleController
+
+    cartesian_impedance_example_controller:
+      type: franka_example_controllers/CartesianImpedanceExampleController
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-    # mobile_cartesian_velocity_controller:
-    #   type: franka_example_controllers/MobileCartesianVelocityExampleController
+    franka_robot_state_broadcaster:
+      type: franka_robot_state_broadcaster/FrankaRobotStateBroadcaster
 
     # swerve_ik_controller:
     #   type: franka_mobile/SwerveIKController
@@ -248,24 +251,29 @@ joint_position_controller:
 #       - 1.0
 #       - 0.5
 
-# cartesian_impedance_example_controller:
-#   ros__parameters:
-#     arm_id: fr3
-#     translational_stiffness: 150.0
-#     rotational_stiffness: 10.0
-#     nullspace_stiffness: 20.0
+cartesian_impedance_example_controller:
+  ros__parameters:
+    robot_type: 'fr3'
+    translational_stiffness: 150.0
+    rotational_stiffness: 10.0
+    nullspace_stiffness: 20.0
 
-# # Holds the prismatic spine against gravity (enabled globally in Gazebo).
-# # On activation the JointTrajectoryController commands and holds the joint's
-# # current position, which is its initial height of 0.0 m (lower travel limit),
-# # so the column does not jump or collapse on bring-up.
-# # ToDo: Replace/remove after proper spine integration
-# spine_joint_trajectory_controller:
-#   ros__parameters:
-#     joints:
-#       - franka_spine_vertical_joint
-#     command_interfaces:
-#       - position
-#     state_interfaces:
-#       - position
-#       - velocity
+model_example_controller:
+  ros__parameters:
+    robot_type: 'fr3'
+    arm_prefix: ''
+
+# Holds the prismatic spine against gravity (enabled globally in Gazebo).
+# On activation the JointTrajectoryController commands and holds the joint's
+# current position, which is its initial height of 0.0 m (lower travel limit),
+# so the column does not jump or collapse on bring-up.
+# ToDo: Replace/remove after proper spine integration
+spine_joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - franka_spine_vertical_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity

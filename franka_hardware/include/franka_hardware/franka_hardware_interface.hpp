@@ -23,7 +23,7 @@
 #include <vector>
 
 #include <realtime_tools/mutex.hpp>
-#include <realtime_tools/realtime_buffer.hpp>
+#include <realtime_tools/realtime_thread_safe_box.hpp>
 
 #include <hardware_interface/hardware_info.hpp>
 #include <hardware_interface/system_interface.hpp>
@@ -83,6 +83,13 @@ class FrankaHardwareInterface : public hardware_interface::SystemInterface {
   CallbackReturn on_init(const hardware_interface::HardwareInfo& info) override;
   static const size_t kNumberOfJoints = 7;
 
+ protected:
+  /**
+   * @return ControlInterface The active command mode. Not thread-safe: call it only from the
+   *   thread running read(), write() or perform_command_mode_switch(), never concurrently.
+   */
+  ControlInterface getActiveMode() const;
+
  private:
   struct InterfaceInfo {
     std::string interface_type;
@@ -91,12 +98,15 @@ class FrankaHardwareInterface : public hardware_interface::SystemInterface {
   };
 
   void initializePositionCommands(const franka::RobotState& robot_state);
+  void updateStateInterfaces(const franka::RobotState& robot_state);
+  hardware_interface::return_type readHoldingControlMutex();
 
   // Support Franka ros2 control interface version
   const int kSupportedControlInterfaceMajor = 1;
 
   ControlInterface active_mode_{ControlInterface::None};
   bool needs_initial_command_{true};
+  std::atomic<bool> control_fault_latched_{false};
   double robot_time_state_{0.0};
 
   std::shared_ptr<Robot> robot_;
@@ -167,11 +177,11 @@ class FrankaHardwareInterface : public hardware_interface::SystemInterface {
 
   const std::vector<InterfaceInfo> command_interfaces_info_;
 
-  // Thread-safe buffer for RobotState shared with consumers (e.g. broadcaster).
-  // Hardware read() writes via writeFromNonRT(), consumers read via readFromRT().
-  realtime_tools::RealtimeBuffer<franka::RobotState> rt_robot_state_buffer_;
-  realtime_tools::RealtimeBuffer<franka::RobotState>* rt_robot_state_buffer_ptr_ =
-      &rt_robot_state_buffer_;
+  // Latest RobotState for controllers/broadcasters. set from read(); consumers
+  // copy under the box mutex via try_get()/get() — safe for multiple readers.
+  realtime_tools::RealtimeThreadSafeBox<franka::RobotState> robot_state_box_;
+  realtime_tools::RealtimeThreadSafeBox<franka::RobotState>* robot_state_box_ptr_ =
+      &robot_state_box_;
   Model* hw_franka_model_ptr_ = nullptr;
   franka::Duration robot_time_;
 
@@ -182,7 +192,12 @@ class FrankaHardwareInterface : public hardware_interface::SystemInterface {
   bool pose_cartesian_interface_claimed_ = false;
   bool elbow_command_interface_claimed_ = false;
 
-  static rclcpp::Logger getLogger();
+  // Cached: constructing a logger allocates, and read()/write() log on the real-time path.
+  rclcpp::Logger logger_{rclcpp::get_logger("FrankaHardwareInterface")};
+
+  // Guarded by control_mutex_. Skips write() until a fresh read() follows the switch; async
+  // controllers may still send one command computed from the pre-switch sample.
+  bool stale_after_switch_{false};
 
   std::string robot_ip_;
   std::string robot_type_{"fr3"};

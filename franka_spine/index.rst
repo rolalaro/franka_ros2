@@ -16,8 +16,31 @@ With a namespace:
 
    ros2 launch franka_spine_server spine.launch.py spine_ip:=172.16.16.10 namespace:=my_robot
 
+Topics
+------
+
+Subscribe to these for a continuous position or state stream. Do not call the
+services in a loop to get the same thing: the spine REST API is served by a
+single upstream behind nginx, and overlapping requests wedge it until the TMR
+is rebooted.
+
+Both topics are published at ``feedback_rate`` (default 10 Hz) and only while
+someone is subscribed, so an idle node leaves the device alone. The ``valid``
+field is false when the last read of the device failed; ``position`` then holds
+the last known value.
+
+.. code-block:: bash
+
+   ros2 topic echo /franka_spine_node/position
+   ros2 topic echo /franka_spine_node/state
+
 Services
 --------
+
+The node reads position and state from the device at most ``feedback_rate``
+times per second in total, and serves everything else from that sample, so
+these services stay safe to call from several clients at once. A service call
+can therefore return a value up to one period old.
 
 Get spine state
 ^^^^^^^^^^^^^^^
