@@ -1,0 +1,10 @@
+<library path="joint_controllers">
+  <class name="joint_controllers/JointSpaceVelocityController" type="joint_controllers::JointSpaceVelocityController" base_class_type="controller_interface::ControllerInterface">
+    <description> Joint space velocity control </description>
+  </class>
+
+  <class name="joint_controllers/JointSpacePositionController" type="joint_controllers::JointSpacePositionController" base_class_type="controller_interface::ControllerInterface">
+    <description> Joint space position control </description>
+  </class>
+
+</library>

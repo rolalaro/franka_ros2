@@ -18,8 +18,10 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ./limits.conf:/etc/security/limits.conf
       - /dev:/dev
+      - ${XAUTHORITY}:/home/user/.Xauthority
     environment:
       QT_X11_NO_MITSHM: 1
+      LOCAL_XDG_RUNTIME_DIR: /tmp/local-xdg-runtime
       DISPLAY: $DISPLAY
       # Force gz-transport discovery over loopback; container multicast is
       # unreliable, which otherwise breaks inter-process world discovery.

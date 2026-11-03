@@ -1,0 +1,26 @@
+${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint_space_controller:
+  ros__parameters:
+    type: joint_controllers/JointSpacePositionController
+    update_rate: 1000
+    
+    joint_state_names:
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint1
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint2
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint3
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint4
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint5
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint6
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint7
+
+    joint_command_names:
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint1
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint2
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint3
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint4
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint5
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint6
+      - ${ARM_PREFIX}${ROBOT_TYPE_PREFIX}_joint7
+
+    interface_name: position
+
+    velocity_scaling: 0.5
