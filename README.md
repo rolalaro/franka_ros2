@@ -133,6 +133,17 @@ For detailed instructions on preparing VS Code to use `.devcontainer`, follow th
       ```bash
       docker compose build
       ```
+      If the build fails with:
+      ```
+      permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+      ```
+      your user is not a member of the `docker` group. Add it, apply the new group to the current shell, then build again:
+      ```bash
+      sudo usermod -aG docker $USER
+      newgrp docker
+      docker compose build
+      ```
+      `newgrp` only affects the current shell; log out and back in for the group to apply everywhere (e.g. VS Code).
   4. **Run the container:**
       ```bash
       docker compose up -d
